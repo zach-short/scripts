@@ -1,8 +1,8 @@
 #!/bin/bash
 
-NATIVE_DIR=~/ezhomesteading/native
-BACKEND_DIR=~/ezhomesteading/backend
-WEB_DIR=~/ezhomesteading/web
+NATIVE_DIR=~/Projects/ezhomesteading/native
+BACKEND_DIR=~/Projects/ezhomesteading/backend
+WEB_DIR=~/Projects/ezhomesteading/web
 
 INCLUDE_WEB=false
 
@@ -45,6 +45,7 @@ tell application "iTerm"
       write text "cd $BACKEND_DIR && go run main.go"
     end tell
   end tell
+end tell
 EOF
 
 if [ "$INCLUDE_WEB" = true ]; then

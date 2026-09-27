@@ -36,12 +36,14 @@ tv — adb shortcuts for the TV at $TV
   disable <pkg>        freeze a package without removing it
   enable <pkg>         unfreeze a package
   launcher             show which app is the current home launcher
+  usage [all]          apps by screen time and background time (all: include unused)
 
-  home | back          press the Home / Back button
+  home | back | search press the Home / Back / Search button
   settings             open the TV's Settings
   screenshot           save a screenshot to ~/Desktop
   mirror               mirror and control the TV screen (needs scrcpy)
   install <file.apk>   sideload an APK
+  wallpaper [image]    copy an image to the TV for Projectivy (no image: list ones already there)
   shell                open a shell on the TV
   reboot               restart the TV
 EOF
@@ -51,7 +53,7 @@ CMD="$1"
 shift
 
 if [ -z "$CMD" ]; then
-  CMDS="connect disconnect reconnect status packages apps disabled removed launcher home back settings screenshot mirror shell reboot help"
+  CMDS="connect disconnect reconnect status packages apps disabled removed usage launcher home back search settings screenshot mirror wallpaper shell reboot help"
   if command -v fzf >/dev/null; then
     CMD=$(printf '%s\n' $CMDS | fzf --prompt="tv> " --height=40% --reverse)
   else
@@ -127,6 +129,27 @@ case "$CMD" in
     tv_adb shell pm enable "$1" \
       && echo "$(date '+%F %T') enabled $1" >> "$LOG"
     ;;
+  usage)
+    # yearly usagestats: screen time (totalTimeUsed) and foreground-service time (totalTimeFS),
+    # the second catches background work like casting that never shows on screen
+    tv_adb shell dumpsys usagestats | tr -d '\r' | awk -v all="$1" '
+      function secs(t,  n, a) { n = split(t, a, ":"); return n == 3 ? a[1]*3600 + a[2]*60 + a[3] : a[1]*60 + a[2] }
+      function val(k,  m) { return match($0, k "=\"[^\"]*\"") ? substr($0, RSTART + length(k) + 2, RLENGTH - length(k) - 3) : "" }
+      /In-memory yearly stats/ { y = 1; next }
+      y && /timeRange=/ { range = val("timeRange"); next }
+      y && /In-memory|^$/ { y = 0 }
+      y && /package=/ {
+        match($0, /package=[^ ]+/); pkg = substr($0, RSTART + 8, RLENGTH - 8)
+        used = val("totalTimeUsed"); fs = val("totalTimeFS")
+        last = val("lastTimeUsed"); comp = val("lastTimeComponentUsed")
+        if (last ~ /^1969/) last = "-"; if (comp ~ /^1969/) comp = "-"
+        if (all == "all" || secs(used) > 0 || secs(fs) > 0)
+          printf "%d\t%-10s %-10s %-19s %-19s %s\n", secs(used), used, fs, last, comp, pkg
+      }
+      END { print "since " range > "/dev/stderr" }' \
+    | sort -t$'\t' -k1,1nr | cut -f2- \
+    | { printf "%-10s %-10s %-19s %-19s %s\n" SCREEN BACKGROUND LAST_ON_SCREEN LAST_ACTIVE PACKAGE; cat; }
+    ;;
   launcher)
     tv_adb shell cmd package resolve-activity --brief \
       -a android.intent.action.MAIN -c android.intent.category.HOME | tail -1
@@ -136,6 +159,9 @@ case "$CMD" in
     ;;
   back)
     tv_adb shell input keyevent KEYCODE_BACK
+    ;;
+  search)
+    tv_adb shell input keyevent KEYCODE_SEARCH
     ;;
   settings)
     tv_adb shell am start -a android.settings.SETTINGS >/dev/null
@@ -154,6 +180,28 @@ case "$CMD" in
   install)
     [ -f "$1" ] || { echo "usage: tv install <file.apk>"; exit 1; }
     tv_adb install "$1"
+    ;;
+  wallpaper)
+    WALL_DIR="/sdcard/Pictures/Wallpapers"
+    if [ -z "$1" ]; then
+      echo "Images on the TV in $WALL_DIR:"
+      tv_adb shell ls -1 "$WALL_DIR" 2>/dev/null || echo "  (none yet — run: tv wallpaper <image>)"
+      exit 0
+    fi
+    [ -f "$1" ] || { echo "No such file: $1"; exit 1; }
+    # warn when the image is smaller than 1080p; it will look soft on a 4K panel
+    W=$(sips -g pixelWidth "$1" 2>/dev/null | awk '/pixelWidth/ {print $2}')
+    H=$(sips -g pixelHeight "$1" 2>/dev/null | awk '/pixelHeight/ {print $2}')
+    if [ -n "$W" ] && { [ "$W" -lt 1920 ] || [ "$H" -lt 1080 ]; }; then
+      echo "Note: image is ${W}x${H}; 1920x1080 or 3840x2160 looks best."
+    fi
+    NAME=$(basename "$1")
+    tv_adb shell mkdir -p "$WALL_DIR"
+    tv_adb push "$1" "$WALL_DIR/$NAME" || exit 1
+    # ask the media scanner to index it so file pickers can see it
+    tv_adb shell am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE \
+      -d "file://$WALL_DIR/$NAME" >/dev/null 2>&1
+    echo "In Projectivy: Settings → Appearance → Wallpaper → pick Pictures/Wallpapers/$NAME"
     ;;
   shell)
     tv_adb shell

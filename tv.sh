@@ -201,7 +201,7 @@ case "$CMD" in
     # ask the media scanner to index it so file pickers can see it
     tv_adb shell am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE \
       -d "file://$WALL_DIR/$NAME" >/dev/null 2>&1
-    echo "In Projectivy: Settings → Appearance → Wallpaper → pick Pictures/Wallpapers/$NAME"
+    echo "In Projectivy: gear icon (Projectivy settings) → Appearance → Wallpaper → Launcher wallpaper → Media file (Premium) → Pictures/Wallpapers/$NAME"
     ;;
   shell)
     tv_adb shell

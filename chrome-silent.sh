@@ -9,6 +9,7 @@ ZSHRC="$HOME/.zshrc"
 BACKUP="$ZSHRC.chrome-silent.bak"
 APP="$HOME/Applications/Chrome Silent.app"
 ALIAS_LINE="alias chrome='open -a \"Google Chrome\" --args $FLAG'"
+CHROME_APP="/Applications/Google Chrome.app"
 CHROME_MAIN="Google Chrome.app/Contents/MacOS/Google Chrome"
 
 usage() {
@@ -31,6 +32,19 @@ chrome_cmd() {
   local pid
   pid=$(pgrep -f "$CHROME_MAIN" | head -1)
   if [ -n "$pid" ]; then ps -o command= -p "$pid"; fi
+}
+
+# Give the Dock app Chrome's icon. macOS reads the icon named by CFBundleIconName from Assets.car,
+# and falls back to the .icns. Editing the bundle breaks its signature, so sign it again (ad hoc).
+set_chrome_icon() {
+  local res="$CHROME_APP/Contents/Resources" plist="$CHROME_APP/Contents/Info.plist" name file
+  name=$(plutil -extract CFBundleIconName raw "$plist" 2>/dev/null) || return 1
+  file=$(plutil -extract CFBundleIconFile raw "$plist" 2>/dev/null) || return 1
+  cp "$res/Assets.car" "$APP/Contents/Resources/Assets.car" || return 1
+  cp "$res/$file" "$APP/Contents/Resources/applet.icns" || return 1
+  plutil -replace CFBundleIconName -string "$name" "$APP/Contents/Info.plist" || return 1
+  codesign --force --sign - "$APP" 2>/dev/null || return 1
+  touch "$APP"
 }
 
 chrome_status() {
@@ -65,6 +79,11 @@ case "$CMD" in
       exit 1
     fi
     echo "app:    built $APP (drag it to the Dock)"
+    if set_chrome_icon; then
+      echo "icon:   copied from Chrome"
+    else
+      echo "icon:   could not copy it from $CHROME_APP (the app still works, with the script icon)"
+    fi
     chrome_status
     ;;
   uninstall)
